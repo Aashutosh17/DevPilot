@@ -4,8 +4,6 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.ai.chat.client.ChatClient;
-import org.springframework.ai.chat.model.ChatModel;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -14,20 +12,35 @@ import devPilot.backend.dto.CitationDto;
 import devPilot.backend.entity.ChatMessage;
 import devPilot.backend.entity.MessageRole;
 import devPilot.backend.repository.ChatMessageRepository;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import reactor.core.Disposable;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Generation step: call OpenAI via Spring AI and stream tokens to the browser over SSE.
  */
 @Component
-@RequiredArgsConstructor
 @Slf4j
 public class ChatStreamHandler {
 
-    private final ChatModel chatModel;
+    private static final String STREAM_ERROR_MESSAGE = "The AI response failed. Please try again.";
+
+    private final ChatClient chatClient;
     private final ChatMessageRepository chatMessageRepository;
     private final CitationMapper citationMapper;
+    private final JsonMapper jsonMapper;
+
+    public ChatStreamHandler(
+            ChatClient.Builder chatClientBuilder,
+            ChatMessageRepository chatMessageRepository,
+            CitationMapper citationMapper,
+            JsonMapper jsonMapper) {
+        // ChatClient is thread-safe, so build it once and reuse it for every message
+        this.chatClient = chatClientBuilder.build();
+        this.chatMessageRepository = chatMessageRepository;
+        this.citationMapper = citationMapper;
+        this.jsonMapper = jsonMapper;
+    }
 
     public SseEmitter stream(
             UUID sessionId,
@@ -44,21 +57,20 @@ public class ChatStreamHandler {
                     .name("user_message")
                     .data(savedUserMessage));
 
-            ChatClient.builder(chatModel)
-                    .build()
+            Disposable subscription = chatClient
                     .prompt()
                     .system(systemPrompt)
                     .user(userPrompt)
                     .stream()
                     .content()
-                    .doOnNext(token -> appendToken(emitter, fullReply, token))
-                    .doOnError(err -> {
-                        log.error("Chat stream error", err);
-                        emitter.completeWithError(err);
-                    })
-                    .doOnComplete(() -> completeStream(
-                            emitter, sessionId, fullReply, citations))
-                    .subscribe();
+                    .subscribe(
+                            token -> appendToken(emitter, fullReply, token),
+                            err -> failStream(emitter, err),
+                            () -> completeStream(emitter, sessionId, fullReply, citations));
+
+            // Stop generating (and paying for) tokens if the client disconnects or the stream times out
+            emitter.onTimeout(subscription::dispose);
+            emitter.onError(err -> subscription.dispose());
         } catch (Exception ex) {
             emitter.completeWithError(ex);
         }
@@ -71,9 +83,23 @@ public class ChatStreamHandler {
         try {
             emitter.send(SseEmitter.event()
                     .name("token")
-                    .data(token, MediaType.APPLICATION_JSON));
+                    .data(toJsonString(token)));
         } catch (Exception ex) {
             throw new IllegalStateException(ex);
+        }
+    }
+
+    private void failStream(SseEmitter emitter, Throwable err) {
+        log.error("Chat stream error", err);
+        try {
+            // Tell the browser why the stream ended instead of closing it silently
+            emitter.send(SseEmitter.event()
+                    .name("error")
+                    .data(toJsonString(STREAM_ERROR_MESSAGE)));
+            emitter.complete();
+        } catch (Exception sendFailed) {
+            // Client already disconnected (e.g. user pressed Stop)
+            emitter.completeWithError(sendFailed);
         }
     }
 
@@ -98,6 +124,14 @@ public class ChatStreamHandler {
         } catch (Exception ex) {
             emitter.completeWithError(ex);
         }
+    }
+
+    /**
+     * Encode as a JSON string literal (quoted, newlines escaped). Sending a raw String would bypass
+     * Jackson, break JSON.parse on the client, and split the SSE event on any newline in the text.
+     */
+    private String toJsonString(String value) {
+        return jsonMapper.writeValueAsString(value);
     }
 
     private ChatMessageResponse toMessageResponse(ChatMessage message) {

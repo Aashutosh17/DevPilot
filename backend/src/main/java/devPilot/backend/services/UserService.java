@@ -15,8 +15,8 @@ import lombok.RequiredArgsConstructor;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-    public final UserRepository userRepository;
-    public final TextEncryptor tokenEncryptor;
+    private final UserRepository userRepository;
+    private final TextEncryptor tokenEncryptor;
     
    @Transactional
     public User upsertFromGitHub(Map<String, Object> attributes, String accessToken, String scopes) {

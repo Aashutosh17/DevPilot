@@ -70,6 +70,18 @@ export async function streamChatMessage(
       const data = dataLines.join("\n");
       if (!data) continue;
 
+      // Backend reports a failed AI response; surface it to the caller's catch block
+      if (event === "error") {
+        let message = "The AI response failed. Please try again.";
+        try {
+          message = JSON.parse(data) as string;
+        } catch {
+          // keep default message
+        }
+        await reader.cancel();
+        throw new Error(message);
+      }
+
       try {
         if (event === "token") {
           handlers.onToken?.(JSON.parse(data) as string);
