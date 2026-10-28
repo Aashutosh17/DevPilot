@@ -1,4 +1,4 @@
-package devPilot.backend.controller;
+package devPilot.backend.controllers;
 
 import java.util.Map;
 
