@@ -35,6 +35,7 @@ export function ChatComposer({
           <Textarea
             value={value}
             onChange={(e) => setValue(e.target.value)}
+            maxLength={4000}
             placeholder="Ask about architecture, files, flows…"
             disabled={disabled}
             className="min-h-12 flex-1 border-0 bg-transparent px-3 py-2 shadow-none focus-visible:ring-0"
