@@ -1,5 +1,8 @@
 package devPilot.backend.services;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
 
@@ -7,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import devPilot.backend.config.DemoMode;
 import devPilot.backend.dto.ChatMessageResponse;
 import devPilot.backend.dto.ChatSessionResponse;
 import devPilot.backend.dto.CreateChatSessionRequest;
@@ -17,6 +21,7 @@ import devPilot.backend.entity.MessageRole;
 import devPilot.backend.entity.Repository;
 import devPilot.backend.exceptions.BadRequestException;
 import devPilot.backend.exceptions.NotFoundException;
+import devPilot.backend.exceptions.TooManyRequestsException;
 import devPilot.backend.repository.ChatMessageRepository;
 import devPilot.backend.repository.ChatSessionRepository;
 import devPilot.backend.services.ai.ChatPromptBuilder;
@@ -43,10 +48,12 @@ public class ChatService {
     private final ChatPromptBuilder chatPromptBuilder;
     private final ChatStreamHandler chatStreamHandler;
     private final CitationMapper citationMapper;
+    private final UserService userService;
+    private final DemoMode demoMode;
 
     @Transactional
     public ChatSessionResponse createSession(UUID userId, CreateChatSessionRequest request) {
-        Repository repo = repoService.requireOwned(request.repositoryId(), userId);
+        Repository repo = repoService.requireReadable(request.repositoryId(), userId);
         if (repo.getIndexStatus() != IndexStatus.READY) {
             throw new BadRequestException("Repository must be indexed before chatting");
         }
@@ -66,7 +73,7 @@ public class ChatService {
 
     @Transactional(readOnly = true)
     public List<ChatSessionResponse> listSessions(UUID userId, UUID repositoryId) {
-        repoService.requireOwned(repositoryId, userId);
+        repoService.requireReadable(repositoryId, userId);
         return chatSessionRepository
                 .findByUserIdAndRepositoryIdOrderByCreatedAtDesc(userId, repositoryId)
                 .stream()
@@ -91,10 +98,11 @@ public class ChatService {
     public SseEmitter streamReply(UUID userId, UUID sessionId, String userContent) {
         // 1. Ensure the session exists and the repo is indexed
         ChatSession session = requireSession(userId, sessionId);
-        Repository repo = repoService.requireOwned(session.getRepositoryId(), userId);
+        Repository repo = repoService.requireReadable(session.getRepositoryId(), userId);
         if (repo.getIndexStatus() != IndexStatus.READY) {
             throw new BadRequestException("Repository is not ready for chat");
         }
+        enforceDemoLimits(userId);
 
         // 2. Persist the user's message
         ChatMessage userMessage = chatMessageRepository.save(ChatMessage.builder()
@@ -117,6 +125,28 @@ public class ChatService {
                 retrievedContext.citations(),
                 systemPrompt,
                 userPrompt);
+    }
+
+    /**
+     * Demo mode only: caps how many questions a visitor (and all visitors together, per UTC day)
+     * can ask, so a public portfolio link can't run up the LLM bill. Admins are exempt.
+     */
+    private void enforceDemoLimits(UUID userId) {
+        if (!demoMode.isEnabled() || demoMode.canManageRepos(userService.requiredById(userId))) {
+            return;
+        }
+        long mine = chatMessageRepository.countByRoleForUser(MessageRole.USER, userId);
+        if (mine >= demoMode.maxMessagesPerUser()) {
+            throw new TooManyRequestsException(
+                    "You've reached the demo limit of " + demoMode.maxMessagesPerUser()
+                            + " questions. Thanks for trying DevPilot!");
+        }
+        Instant startOfDay = LocalDate.now(ZoneOffset.UTC).atStartOfDay(ZoneOffset.UTC).toInstant();
+        long today = chatMessageRepository.countByRoleAndCreatedAtGreaterThanEqual(MessageRole.USER, startOfDay);
+        if (today >= demoMode.maxMessagesPerDay()) {
+            throw new TooManyRequestsException(
+                    "The demo has hit its daily question limit. Please come back tomorrow.");
+        }
     }
 
     private ChatSessionResponse toSessionResponse(ChatSession session) {

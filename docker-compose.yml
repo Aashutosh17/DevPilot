@@ -28,6 +28,10 @@ services:
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
       TOKEN_ENCRYPTOR_PASSWORD: ${TOKEN_ENCRYPTOR_PASSWORD}
       TOKEN_ENCRYPTOR_SALT: ${TOKEN_ENCRYPTOR_SALT}
+      # Optional demo mode (see DEPLOY.md); off unless set in .env
+      DEMO_MODE: ${DEMO_MODE:-false}
+      DEMO_ADMIN_GITHUB_USERNAMES: ${DEMO_ADMIN_GITHUB_USERNAMES:-}
+      DEMO_REPOS: ${DEMO_REPOS:-}
     ports:
       - "8080:8080"
     depends_on:

@@ -114,6 +114,11 @@ To stop the Docker services:
 docker compose down
 ```
 
+## Deployment
+
+DevPilot can be deployed for free as a public demo (Vercel + Render + Neon), with a guest
+"Try the live demo" mode limited to preset repositories. See **[DEPLOY.md](DEPLOY.md)**.
+
 ## Project Structure
 
 ```text
