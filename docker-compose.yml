@@ -23,6 +23,11 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_USER:-devpilot}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-devpilot}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-changeme}
+      # LLM provider (OpenAI-compatible). Defaults match application.properties (Gemini free tier).
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://generativelanguage.googleapis.com/v1beta/openai}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gemini-3.5-flash-lite}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-gemini-embedding-001}
+      EMBEDDING_DIMENSIONS: ${EMBEDDING_DIMENSIONS:-1536}
       # Secrets come from the git-ignored .env file in the project root
       GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID}
       GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET}
