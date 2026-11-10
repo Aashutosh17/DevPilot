@@ -72,4 +72,4 @@ services:
       - key: DEMO_MAX_MESSAGES_PER_USER
         value: "20"
       - key: DEMO_MAX_MESSAGES_PER_DAY
-        value: "300"
+        value: "200" # keep below the chat model's free daily request limit

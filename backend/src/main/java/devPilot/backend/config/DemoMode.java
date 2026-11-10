@@ -37,7 +37,7 @@ public class DemoMode {
             @Value("${app.demo.admin-github-usernames:}") String adminUsernames,
             @Value("${app.demo.repos:}") String repoFullNames,
             @Value("${app.demo.max-messages-per-user:20}") int maxMessagesPerUser,
-            @Value("${app.demo.max-messages-per-day:300}") int maxMessagesPerDay) {
+            @Value("${app.demo.max-messages-per-day:200}") int maxMessagesPerDay) {
         this.enabled = enabled;
         this.adminUsernames = Set.copyOf(splitLower(adminUsernames));
         this.repoFullNames = List.copyOf(splitLower(repoFullNames));
