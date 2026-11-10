@@ -7,7 +7,7 @@ This guide deploys DevPilot as a **public portfolio demo** at no hosting cost:
 | Frontend (Next.js) | **Vercel** (Hobby) | None that matter here |
 | Backend (Spring Boot) | **Render** (Free web service) | Sleeps after 15 min idle; first request takes ~1 min to wake |
 | Database (Postgres + pgvector) | **Neon** (Free) | 0.5 GB storage; sleeps when idle (wakes in under a second) |
-| LLM + embeddings | **OpenAI** | Not free: needs ~$5 prepaid credit, but a demo uses cents |
+| LLM + embeddings | **Google Gemini API** (free tier) | Low rate limits; indexing is throttled, so it takes a few minutes |
 
 ## How it fits together
 
@@ -18,7 +18,7 @@ Browser ──► https://<app>.vercel.app ─┬─► Next.js pages (Vercel)
                                            proxied to ──► https://<api>.onrender.com (Spring Boot)
                                                                    │
                                                                    ├─► Neon Postgres (pgvector)
-                                                                   ├─► OpenAI
+                                                                   ├─► Gemini API (OpenAI-compatible)
                                                                    └─► GitHub API
 ```
 
@@ -34,7 +34,8 @@ custom domain needed.
 - Visitors only see the preset repos in `DEMO_REPOS`, and can't sync or index.
 - Only `DEMO_ADMIN_GITHUB_USERNAMES` (you) can sign in with GitHub to sync and index, and only the preset repos.
 - Each visitor gets `DEMO_MAX_MESSAGES_PER_USER` questions (default 20). All visitors combined get
-  `DEMO_MAX_MESSAGES_PER_DAY` (default 300) per UTC day. This caps the OpenAI bill.
+  `DEMO_MAX_MESSAGES_PER_DAY` (default 200) per UTC day. This keeps the demo inside Gemini's free
+  daily quota (and caps the bill if you use a paid provider instead).
 - GitHub sign-in asks only for `read:user` (no access to anyone's private repos). That's enough
   because the preset repos are public.
 
@@ -67,15 +68,40 @@ Below, `FRONTEND` means that URL (no trailing slash).
 You don't need to create any tables or extensions. On first start, the app creates its tables (Hibernate)
 and the `vector` table/extension (Spring AI).
 
-## Step 2: OpenAI key (with a spending cap)
+## Step 2: Free Gemini API key
 
-1. On platform.openai.com, add a small credit (minimum ~$5) under Billing.
-2. Create a **project** for DevPilot and set a **monthly budget** on it (e.g. $5). This is your
-   hard safety net on top of the app's own question caps.
-3. Create an API key in that project → `OPENAI_API_KEY`.
+1. Go to Google AI Studio (aistudio.google.com) and sign in with a Google account.
+2. Click **Get API key → Create API key**. This creates a Google Cloud project on the free tier.
+   Copy the key → `OPENAI_API_KEY` (the app talks to Gemini through its OpenAI-compatible API,
+   so the variable keeps the OpenAI name).
+3. **Don't enable billing** on that project. Without billing, Google can't charge you: when the free
+   quota runs out, requests are refused (the app shows a "try again later" message) instead of billed.
 
-Rough cost: indexing a repo the size of DevPilot is about a cent of embeddings. Each question on
-`gpt-4o-mini` costs a fraction of a cent.
+`render.yaml` already points the app at Gemini (`OPENAI_BASE_URL`, `OPENAI_CHAT_MODEL=gemini-3.5-flash-lite`,
+`OPENAI_EMBEDDING_MODEL=gemini-embedding-001`, `EMBEDDING_DIMENSIONS=1536`). Free-tier limits to know about:
+
+- Embeddings: 100 chunks per minute and **1,000 per day** (each chunk counts as one request; the
+  day resets at midnight Pacific time). Indexing is throttled to 90/min (`EMBEDDING_CHUNKS_PER_MINUTE`),
+  so a repo the size of DevPilot (~750 chunks) takes about 9 minutes and uses ~75% of a day's
+  quota: index it **once**, not repeatedly. Every chat question also uses one embedding.
+- Chat: a daily request limit per model (see your project's limits at aistudio.google.com/rate-limit).
+  Keep `DEMO_MAX_MESSAGES_PER_DAY` below it.
+- On the free tier Google may use prompts to improve its products, so the login page tells visitors
+  their questions are sent to Google. Don't index anything private with a free key.
+
+**Optional, paid: OpenAI instead.** Add ~$5 credit on platform.openai.com, create a project with a
+monthly budget, create a key, and set on Render:
+
+| Key | Value |
+|---|---|
+| `OPENAI_API_KEY` | your OpenAI key |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1` (the `/v1` is required) |
+| `OPENAI_CHAT_MODEL` | `gpt-4o-mini` |
+| `OPENAI_EMBEDDING_MODEL` | `text-embedding-3-small` |
+| `EMBEDDING_CHUNKS_PER_MINUTE` | `0` (no throttle needed) |
+
+Then re-index the preset repo: vectors from different embedding models can't be compared. Also
+update the Gemini line under the demo button in `client/app/login/page.tsx`.
 
 ## Step 3: GitHub OAuth app (for your owner sign-in)
 
@@ -128,7 +154,8 @@ values. See Troubleshooting below.
 
 1. Open `FRONTEND/login` and click **Owner sign-in with GitHub** (wait a minute if the backend is waking up).
 2. On the dashboard click **Sync**, find `<your-username>/DevPilot`, click **Index**.
-3. Wait for **Ready**, then ask a test question in chat.
+3. Wait for **Ready** (about 9 minutes for DevPilot on the Gemini free tier; keep the tab
+   open so Render doesn't fall asleep), then ask a test question in chat.
 
 ## Step 7: Test it as a visitor
 
@@ -158,6 +185,11 @@ preset repo, no Sync/Index buttons, and chat should work. That's the link for yo
 | Indexing fails with 404 from GitHub | The repo is private. Make it public, or set `GITHUB_OAUTH_SCOPES=read:user,repo` |
 | Render log: `Connection to ... refused` / `password authentication failed` | Recheck the three Neon values; the URL must start with `jdbc:postgresql://` |
 | Render log: `OutOfMemoryError` | The free instance has 512 MB. Lower heap with `JAVA_OPTS=-XX:MaxRAMPercentage=60 -XX:+UseSerialGC -Xss512k -XX:TieredStopAtLevel=1` |
+| Chat says "The AI service is getting too many requests" | Gemini free-tier per-minute limit. Wait a minute |
+| Chat says "used up today's free quota" | Gemini daily limit reached; it resets at midnight Pacific time. Lower `DEMO_MAX_MESSAGES_PER_DAY` |
+| Indexing fails with "daily embedding quota is used up" | The repo was indexed more than once today (1,000 chunks/day). Retry after midnight Pacific |
+| Indexing fails with "rate limit was reached while indexing" | Something else is using the same key's per-minute quota. Retry later |
+| Chat or indexing fails with 404 from the AI provider | `OPENAI_BASE_URL` is missing its version path (`.../v1beta/openai` for Gemini, `.../v1` for OpenAI) |
 | Indexing stops with "interrupted by a server restart" | Render slept or restarted mid-index. Click Retry, and keep the tab open while it runs |
 
 ## Optional: skip the cold start
