@@ -34,19 +34,21 @@ public class RepoController {
     public List<RepositoryResponse> list(
             @RequestParam(name = "refresh", defaultValue = "true") boolean refresh) {
         UUID userId = currentUser.require().getId();
-        return repoService.listForUser(userId, refresh);
+        if (refresh) {
+            return repoService.syncAndListRepos(userId);
+        }
+        return repoService.listStored(userId);
     }
 
     @GetMapping("/{id}")
     public RepositoryResponse get(@PathVariable UUID id) {
         UUID userId = currentUser.require().getId();
-        return repoService.toResponse(repoService.requireReadable(id, userId));
+        return repoService.toResponse(repoService.requireOwned(id, userId));
     }
 
     @PostMapping("/{id}/index")
     public ResponseEntity<RepositoryResponse> index(@PathVariable UUID id) {
         UUID userId = currentUser.require().getId();
-        repoService.requireManageable(id, userId);
         Repository repo = indexingService.startIndexing(id, userId);
         indexingService.indexAsync(id, userId);
         return ResponseEntity.status(HttpStatus.ACCEPTED).body(repoService.toResponse(repo));

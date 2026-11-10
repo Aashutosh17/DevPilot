@@ -11,7 +11,6 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
-import devPilot.backend.services.ai.AiErrors;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
@@ -31,16 +30,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(UnauthorizedException.class)
     ResponseEntity<Map<String, Object>> handleUnauthorized(UnauthorizedException ex) {
         return error(HttpStatus.UNAUTHORIZED, ex.getMessage());
-    }
-
-    @ExceptionHandler(ForbiddenException.class)
-    ResponseEntity<Map<String, Object>> handleForbidden(ForbiddenException ex) {
-        return error(HttpStatus.FORBIDDEN, ex.getMessage());
-    }
-
-    @ExceptionHandler(TooManyRequestsException.class)
-    ResponseEntity<Map<String, Object>> handleTooManyRequests(TooManyRequestsException ex) {
-        return error(HttpStatus.TOO_MANY_REQUESTS, ex.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -66,11 +55,6 @@ public class GlobalExceptionHandler {
                 String detail = er.getBody().getDetail();
                 return error(status, detail != null ? detail : status.getReasonPhrase());
             }
-        }
-        // The AI provider rate-limited us (e.g. embedding the question on a free tier)
-        if (AiErrors.isRateLimited(ex)) {
-            log.warn("AI provider rate limit: {}", ex.getMessage());
-            return error(HttpStatus.TOO_MANY_REQUESTS, AiErrors.userMessage(ex));
         }
         // Log the real cause server-side; don't leak SQL/stack details to the client
         log.error("Unhandled exception", ex);
