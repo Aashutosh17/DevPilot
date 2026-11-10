@@ -6,15 +6,6 @@ export type User = {
   githubUsername: string;
   displayName: string;
   avatarUrl: string | null;
-  /** Demo-mode visitor without a GitHub account */
-  guest: boolean;
-  /** False in demo mode for visitors: hide sync/index controls */
-  canManageRepos: boolean;
-};
-
-export type AuthConfig = {
-  demoMode: boolean;
-  demoRepos: string[];
 };
 
 export type Repository = {
@@ -79,10 +70,7 @@ export class ApiError extends Error {
 }
 
 export function getApiBaseUrl() {
-  // "" means same origin (the Vercel proxy in next.config.ts); unset means local dev
-  const url = process.env.NEXT_PUBLIC_API_URL;
-  if (url === undefined) return "http://localhost:8080";
-  return url.replace(/\/$/, "");
+  return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8080";
 }
 
 export function getGithubLoginUrl() {
@@ -124,8 +112,6 @@ export async function apiFetch<T>(
 
 export const api = {
   me: () => apiFetch<User>("/api/auth/me"),
-  authConfig: () => apiFetch<AuthConfig>("/api/auth/config"),
-  demoLogin: () => apiFetch<User>("/api/auth/demo", { method: "POST" }),
   logout: () =>
     apiFetch<void>("/api/auth/logout", {
       method: "POST",

@@ -17,7 +17,7 @@ import reactor.core.Disposable;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * Generation step: call the LLM (OpenAI-compatible API) via Spring AI and stream tokens to the browser over SSE.
+ * Generation step: call OpenAI via Spring AI and stream tokens to the browser over SSE.
  */
 @Component
 @Slf4j
@@ -90,19 +90,12 @@ public class ChatStreamHandler {
     }
 
     private void failStream(SseEmitter emitter, Throwable err) {
-        String message;
-        if (AiErrors.isRateLimited(err)) {
-            log.warn("Chat stream rate-limited by AI provider: {}", err.getMessage());
-            message = AiErrors.userMessage(err);
-        } else {
-            log.error("Chat stream error", err);
-            message = STREAM_ERROR_MESSAGE;
-        }
+        log.error("Chat stream error", err);
         try {
             // Tell the browser why the stream ended instead of closing it silently
             emitter.send(SseEmitter.event()
                     .name("error")
-                    .data(toJsonString(message)));
+                    .data(toJsonString(STREAM_ERROR_MESSAGE)));
             emitter.complete();
         } catch (Exception sendFailed) {
             // Client already disconnected (e.g. user pressed Stop)

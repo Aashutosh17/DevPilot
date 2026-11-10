@@ -7,10 +7,8 @@ public record UserResponse(
     Long githubId,
     String githubUsername,
     String displayName,
-    String avatarUrl,
-    /** Demo-mode visitor without a GitHub account. */
-    boolean guest,
-    /** Whether this user may sync and index repos (false for demo visitors). */
-    boolean canManageRepos
+    String avatarUrl
 ) {
+
+  
 }
